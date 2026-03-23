@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
-> Last updated by /write on 2026-03-23
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks/status sync fix (v1.4.0)
+> Last updated by /write on 2026-03-24
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.4.0)
+### Plugin Structure (claude-cmux-skill v1.5.0)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -267,17 +267,23 @@ Notifications suppressed when: cmux window focused, workspace active, notificati
 | CodeMux | Cross-platform terminal multiplexer for AI |
 | amux | tmux-based parallel AI agent runner |
 
-## Hooks/Status Sync Fix (v1.4.0)
+## Hooks Simplification (v1.5.0)
 
-**Problem**: When the orchestrator set custom status pills (e.g., `agent-1=researching`), the Stop hook only updated the built-in `claude_code` pill to "Idle" — custom pills were never cleared, so the sidebar showed stale "researching" status after agents finished.
+**Problem (v1.4.0)**: The v1.4.0 fix added custom `cmux set-status` calls (via `cmux identify --json | awk`) to the SessionStart and Stop hooks to set surface-ref-keyed status pills. This caused two issues:
+1. **Duplicate status pills** — `cmux claude-hook session-start/stop` already manages sidebar status natively (e.g., "Needs input"). The custom `set-status` added a second pill, causing conflicting displays like "Needs input" + "done" on a single pane.
+2. **Hook exit code failures** — When `cmux identify --json` failed to extract the surface ref (`$SREF` empty), `[ -n "$SREF" ]` returned exit code 1, causing hook errors visible to the LLM. This corrupted the agent's context and led to hallucinated commands like `cmux pane create` (which doesn't exist).
 
-**Root cause**: Disconnect between orchestrator-set status keys (`agent-N`) and hook-driven lifecycle updates (`claude_code`). The Stop hook had no way to know the orchestrator's key.
+**Root cause**: The custom `set-status` logic was redundant — `cmux claude-hook` already handles all sidebar lifecycle status natively.
 
-**Fix (2 parts)**:
-1. **`hooks/hooks.json`** — SessionStart and Stop hooks now also set a surface-ref-keyed status pill via `cmux identify --json` → `cmux set-status "surface:N" "active|done"`. This auto-updates when agents start/stop.
-2. **Skill instructions** (`SKILL.md` + `orchestration.md`) — Updated to use surface refs as status keys (e.g., `set-status "surface:5" "researching"`) so hook-driven updates overwrite the same key.
+**Fix**: Removed all `cmux identify --json | awk` + `cmux set-status` logic from SessionStart and Stop hooks. Reverted to simple form:
+```bash
+if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook session-start; else exit 0; fi
+if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
+```
 
-**Result**: When an agent finishes, Stop hook transitions `surface:N` → `done` (green checkmark) automatically.
+**Skill changes**: Reverted status key guidance from `"surface:N"` back to descriptive keys (`"agent-1"`, `"agent-2"`) in `SKILL.md` and `orchestration.md`. Added `cmux pane create` to Common Mistakes table.
+
+**Result**: Single status pill per pane (managed by `cmux claude-hook`), no hook exit code errors, no hallucinated commands.
 
 ## Skill Evaluation & Fixes (v1.3.0)
 
@@ -301,20 +307,17 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
 
 ## Key Details
 
-- **Decisions**: cmux blocks the built-in Agent tool via PreToolUse hook when `CMUX_SOCKET_PATH` is set, redirecting to cmux panes for better isolation and observability. Plugin ships SessionStart/Stop/Notification lifecycle hooks for sidebar integration. Status pills keyed by surface ref for automatic hook-driven lifecycle updates.
+- **Decisions**: cmux blocks the built-in Agent tool via PreToolUse hook when `CMUX_SOCKET_PATH` is set, redirecting to cmux panes for better isolation and observability. Plugin ships SessionStart/Stop/Notification lifecycle hooks that delegate to `cmux claude-hook` for native sidebar status management. Custom `set-status` in hooks was removed in v1.5.0 as redundant — `cmux claude-hook` handles lifecycle status natively.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
 
-- `/tmp/cmux-research-docs.md` — Agent 1 output: official docs, installation, full CLI reference, keyboard shortcuts, architecture (570 lines)
-- `/tmp/cmux-research-integration.md` — Agent 2 output: Claude Code integration, plugin system, hooks, skills, Agent tool blocking (579 lines)
-- `/tmp/cmux-research-tips.md` — Agent 3 output: tips, tricks, advanced patterns, troubleshooting, performance (563 lines)
-- `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks + surface-ref status pills
-- `skills/using-cmux/SKILL.md` — Core cmux skill with CLI reference, orchestration patterns, permission handling
+- `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks (simple `cmux claude-hook` delegation)
+- `skills/using-cmux/SKILL.md` — Core cmux skill with CLI reference, orchestration patterns, permission handling, common mistakes
 - `skills/using-cmux/references/orchestration.md` — Advanced multi-agent patterns, error recovery with `respawn-pane`
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.4.0
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.3.0
+- `.claude-plugin/plugin.json` — Plugin manifest v1.5.0
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.5.0
 - `README.md` — Project README with hooks directory tree
