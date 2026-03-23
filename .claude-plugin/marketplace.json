@@ -1,0 +1,17 @@
+{
+  "name": "claude-cmux-skill",
+  "owner": {
+    "name": "Dennis Nasarov"
+  },
+  "plugins": [
+    {
+      "name": "claude-cmux-skill",
+      "source": "./",
+      "description": "Comprehensive skill for orchestrating AI agents in cmux terminal — split panes, subagent monitoring, browser automation, sidebar metadata, notifications, and full CLI coverage.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Dennis Nasarov"
+      }
+    }
+  ]
+}
