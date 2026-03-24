@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
 > Last updated by /write on 2026-03-24
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0)
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0) + agent cleanup & output persistence (v1.7.0)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.6.0)
+### Plugin Structure (claude-cmux-skill v1.7.0)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -327,6 +327,24 @@ if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
 
 **Files changed**: SKILL.md, orchestration.md, README.md, plugin.json, marketplace.json (92 insertions, 34 deletions + version bump to 1.6.0)
 
+## Agent Cleanup & Output Persistence (v1.7.0)
+
+**Problem 1 — No per-agent cleanup**: Agent panes stayed open after finishing, cluttering the workspace. Cleanup was documented as a batch operation at the very end of orchestration, not per-agent as agents complete.
+
+**Problem 2 — Ephemeral output**: Agent results were collected via `read-screen --scrollback` piped to `/tmp/` files or named buffers. Screen output is lost when panes close; `/tmp/` files are fragile and not project-local.
+
+**Fix — Output persistence to `scratchpad/`**:
+1. `SKILL.md` "Launching Agents" — Added bold callout: "Always instruct agents to save output to `scratchpad/`". Updated example prompts to include save instruction: `claude -p 'implement auth module. When done, save a summary of changes to scratchpad/agent-auth.md'`
+2. `orchestration.md` "Launch Agents with Labels" — Same pattern applied to all 3 agent prompt examples
+3. `orchestration.md` "Collect Results" — Rewritten to read from `scratchpad/` files as primary method, `read-screen` demoted to fallback
+
+**Fix — Per-agent pane cleanup**:
+1. `SKILL.md` "Cleanup" — Rewritten: close each agent's pane as soon as it finishes (not batch at end). Pattern: `test -f scratchpad/agent-auth.md && cmux close-surface --surface $S1`
+2. `orchestration.md` "Update Progress and Clean Up" — Restructured to show per-agent cleanup with progress updates as each agent completes, sidebar cleanup after all finish
+3. `SKILL.md` "Common Mistakes" — Added 2 entries: "Not persisting agent output" and "Leaving finished agent panes open"
+
+**Files changed**: SKILL.md, orchestration.md, plugin.json, marketplace.json, README.md (version bump to 1.7.0)
+
 ## Skill Evaluation & Fixes (v1.3.0)
 
 After research, we evaluated the claude-cmux-skill plugin against findings. 8 fixes were implemented:
@@ -356,16 +374,18 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
   - Panes (`cmux new-split`) are the explicit default for agent orchestration. Workspaces (`cmux new-workspace`) are reserved for separate project roots only — documented in v1.5.1.
   - Spawned agents must use `claude -p 'prompt'` (non-interactive print mode) — documented in v1.6.0 to fix wrong CLI invocation patterns.
   - Pane splits must use `--surface` targeting with captured refs — documented in v1.6.0 to fix uneven recursive splitting.
+  - Spawned agents must persist output to `scratchpad/` files — documented in v1.7.0 so results survive pane closure.
+  - Agent panes should be closed per-agent as they finish (not batched at the end) — documented in v1.7.0 to reduce workspace clutter.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
 
 - `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks
-- `skills/using-cmux/SKILL.md` — Core cmux skill with balanced pane layouts, `claude -p` invocation, permission handling, common mistakes
-- `skills/using-cmux/references/orchestration.md` — Multi-agent patterns with balanced splits, `claude -p`, error recovery with `respawn-pane`
+- `skills/using-cmux/SKILL.md` — Core cmux skill with balanced pane layouts, `claude -p` invocation, scratchpad output persistence, per-agent cleanup, common mistakes
+- `skills/using-cmux/references/orchestration.md` — Multi-agent patterns with balanced splits, `claude -p`, scratchpad output, per-agent cleanup, error recovery with `respawn-pane`
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.6.0
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.6.0
-- `README.md` — Project README with `claude -p` examples, version badge v1.6.0
+- `.claude-plugin/plugin.json` — Plugin manifest v1.7.0
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.7.0
+- `README.md` — Project README with `claude -p` examples, version badge v1.7.0
