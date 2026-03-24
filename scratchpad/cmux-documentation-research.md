@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
 > Last updated by /write on 2026-03-24
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0)
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.5.0)
+### Plugin Structure (claude-cmux-skill v1.5.1)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -285,6 +285,22 @@ if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
 
 **Result**: Single status pill per pane (managed by `cmux claude-hook`), no hook exit code errors, no hallucinated commands.
 
+## Panes-as-Default Fix (v1.5.1)
+
+**Problem**: Inconsistent agent-spawning behavior across models — Opus correctly used `cmux new-split` (panes within the current workspace), while Sonnet created new workspaces and struggled to orchestrate them. Root cause: the skill documented both patterns with equal weight and no explicit hierarchy of preference.
+
+**Specific gaps**:
+1. `SKILL.md` "Agent Orchestration" section had no "prefer panes" statement
+2. `SKILL.md` "Common Mistakes" table had no entry warning against workspace-as-default
+3. `orchestration.md` "Workspace-Per-Project Pattern" section wasn't clearly framed as a special case — weaker models treated it as the general pattern
+
+**Fix**: 3 targeted edits:
+1. `SKILL.md` — Added `**Default: panes, not workspaces.**` callout immediately after the Agent Orchestration section header: *"Use `cmux new-split` to create splits within the current workspace. Only use `cmux new-workspace` when agents need completely separate project directories (e.g., monorepo subprojects with different `--cwd`)."*
+2. `SKILL.md` — Added row to Common Mistakes table: *"Creating new workspaces for parallel agents → Use `cmux new-split right|down` instead — workspaces are for separate project roots, not parallel tasks"*
+3. `orchestration.md` — Added `> **Special case only.**` callout under "Workspace-Per-Project Pattern" heading: *"Use this pattern when agents need different `--cwd` project roots. For parallel tasks within the same project, use `cmux new-split` instead — it's simpler, faster, and easier to monitor."*
+
+**Result**: Explicit panes-first default visible to all models at the first decision point. Workspace pattern clearly gated as a special case.
+
 ## Skill Evaluation & Fixes (v1.3.0)
 
 After research, we evaluated the claude-cmux-skill plugin against findings. 8 fixes were implemented:
@@ -307,17 +323,21 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
 
 ## Key Details
 
-- **Decisions**: cmux blocks the built-in Agent tool via PreToolUse hook when `CMUX_SOCKET_PATH` is set, redirecting to cmux panes for better isolation and observability. Plugin ships SessionStart/Stop/Notification lifecycle hooks that delegate to `cmux claude-hook` for native sidebar status management. Custom `set-status` in hooks was removed in v1.5.0 as redundant — `cmux claude-hook` handles lifecycle status natively.
+- **Decisions**:
+  - cmux blocks the built-in Agent tool via PreToolUse hook when `CMUX_SOCKET_PATH` is set, redirecting to cmux panes for better isolation and observability.
+  - Plugin ships SessionStart/Stop/Notification lifecycle hooks that delegate to `cmux claude-hook` for native sidebar status management.
+  - Custom `set-status` in hooks was removed in v1.5.0 as redundant — `cmux claude-hook` handles lifecycle status natively.
+  - Panes (`cmux new-split`) are the explicit default for agent orchestration. Workspaces (`cmux new-workspace`) are reserved for separate project roots only — documented in v1.5.1 to fix Sonnet creating workspaces instead of panes.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
 
 - `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks (simple `cmux claude-hook` delegation)
-- `skills/using-cmux/SKILL.md` — Core cmux skill with CLI reference, orchestration patterns, permission handling, common mistakes
-- `skills/using-cmux/references/orchestration.md` — Advanced multi-agent patterns, error recovery with `respawn-pane`
+- `skills/using-cmux/SKILL.md` — Core cmux skill with CLI reference, orchestration patterns, permission handling, panes-as-default guidance, common mistakes
+- `skills/using-cmux/references/orchestration.md` — Advanced multi-agent patterns, error recovery with `respawn-pane`, workspace-per-project as special case only
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.5.0
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.5.0
-- `README.md` — Project README with hooks directory tree
+- `.claude-plugin/plugin.json` — Plugin manifest v1.5.1
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.5.1
+- `README.md` — Project README with hooks directory tree, version badge v1.5.1
