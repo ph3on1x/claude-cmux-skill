@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
 > Last updated by /write on 2026-03-25
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0) + agent cleanup & output persistence (v1.7.0) + prompt file fix (v1.8.0 → v1.8.1)
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0) + agent cleanup & output persistence (v1.7.0) + prompt file fix (v1.8.0 → v1.8.1) + interactive mode fix (v1.9.0)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.8.1)
+### Plugin Structure (claude-cmux-skill v1.9.0)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -327,6 +327,25 @@ if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
 
 **Files changed**: SKILL.md, orchestration.md, README.md, plugin.json, marketplace.json (92 insertions, 34 deletions + version bump to 1.6.0)
 
+## Interactive Mode Fix (v1.9.0)
+
+**Problem**: `claude -p` (print mode) buffers all output and only displays it when the agent finishes. Agent panes appeared stuck with a blinking cursor for minutes — no streaming tokens, no tool-call indicators, no visibility into progress. Users need to see agents working in real-time.
+
+**Root cause**: The v1.6.0 change introduced `-p` to make agents auto-exit, but `-p` also suppresses all interactive output. The trade-off (auto-exit vs visibility) was wrong — visibility is more important since the orchestrator closes panes via `close-surface` anyway.
+
+**Fix — Switch to interactive mode**:
+1. Changed all `claude -p 'prompt'` → `claude 'prompt'` and `claude -p "$(cat file)"` → `claude "$(cat file)"` across SKILL.md, orchestration.md, README.md
+2. `SKILL.md` "Launching Agents" — Rewritten: "Always launch agents in interactive mode". Explains that interactive mode shows real-time streaming, and agents don't auto-exit but orchestrator closes panes via `close-surface`
+3. `SKILL.md` "Common Mistakes" — Replaced old `-p` entry with: "Using `claude -p` for spawned agents → Use interactive mode for streaming output"
+4. `orchestration.md` — Same changes across all sections (launch, sync, retry, workspace)
+
+**Why this is safe**: The original v1.6.0 concerns about removing `-p`:
+- Workspace trust dialog → solved by pre-configuring permissions in `.claude/settings.json`
+- Agent doesn't auto-exit → fine: orchestrator closes panes via `close-surface`
+- Claude "improvising" with temp files → was about not knowing the CLI, not about `-p` itself
+
+**Files changed**: SKILL.md, orchestration.md, README.md, plugin.json, marketplace.json (version bump to 1.9.0)
+
 ## Prompt File Fix (v1.8.0 → v1.8.1)
 
 **Problem 1 (v1.8.0)**: Multi-line or complex prompts sent inline via `cmux send` get corrupted in agent panes. `cmux send` interprets `\n` as Enter, which splits multi-line prompts across shell lines — the shell sees an unclosed single quote and enters `quote>` continuation mode, often getting stuck or producing garbled input. This was especially common with detailed research prompts containing URLs, lists, and multi-paragraph instructions.
@@ -396,21 +415,21 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
   - Plugin ships SessionStart/Stop/Notification lifecycle hooks that delegate to `cmux claude-hook` for native sidebar status management.
   - Custom `set-status` in hooks was removed in v1.5.0 as redundant — `cmux claude-hook` handles lifecycle status natively.
   - Panes (`cmux new-split`) are the explicit default for agent orchestration. Workspaces (`cmux new-workspace`) are reserved for separate project roots only — documented in v1.5.1.
-  - Spawned agents must use `claude -p 'prompt'` (non-interactive print mode) — documented in v1.6.0 to fix wrong CLI invocation patterns.
+  - Spawned agents must use interactive mode (`claude 'prompt'`, NOT `claude -p`) for real-time streaming output — reversed from v1.6.0's `-p` recommendation in v1.9.0.
   - Pane splits must use `--surface` targeting with captured refs — documented in v1.6.0 to fix uneven recursive splitting.
   - Spawned agents must persist output to `scratchpad/` files — documented in v1.7.0 so results survive pane closure.
   - Agent panes should be closed per-agent as they finish (not batched at the end) — documented in v1.7.0 to reduce workspace clutter.
-  - Complex/multi-line prompts must use file + `$(cat)` pattern (`claude -p "$(cat scratchpad/agent-N-prompt.md)"`) — piping does NOT work because `claude -p` requires the prompt as an argument. Documented in v1.8.0, fixed in v1.8.1.
+  - Complex/multi-line prompts must use file + `$(cat)` pattern (`claude "$(cat scratchpad/agent-N-prompt.md)"`) to avoid `cmux send` quoting corruption. Documented in v1.8.0, fixed in v1.8.1, updated to interactive mode in v1.9.0.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
 
 - `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks
-- `skills/using-cmux/SKILL.md` — Core cmux skill with balanced pane layouts, `claude -p` invocation, scratchpad output persistence, per-agent cleanup, common mistakes
-- `skills/using-cmux/references/orchestration.md` — Multi-agent patterns with balanced splits, `claude -p`, scratchpad output, per-agent cleanup, error recovery with `respawn-pane`
+- `skills/using-cmux/SKILL.md` — Core cmux skill with balanced pane layouts, interactive mode invocation, scratchpad output persistence, per-agent cleanup, common mistakes
+- `skills/using-cmux/references/orchestration.md` — Multi-agent patterns with balanced splits, interactive mode, scratchpad output, per-agent cleanup, error recovery with `respawn-pane`
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.8.1
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.8.1
-- `README.md` — Project README with `claude -p` examples, version badge v1.8.1
+- `.claude-plugin/plugin.json` — Plugin manifest v1.9.0
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.9.0
+- `README.md` — Project README with interactive mode examples, version badge v1.9.0
