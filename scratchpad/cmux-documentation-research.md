@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
 > Last updated by /write on 2026-03-24
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1)
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.5.1)
+### Plugin Structure (claude-cmux-skill v1.6.0)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -193,7 +193,7 @@ git worktree add ../settings-ui feature/settings-ui
 ```bash
 cmux send-key --surface surface:N ctrl+c    # Interrupt
 cmux clear-history --surface surface:N      # Clear
-cmux send --surface surface:N "claude 'retry task'\n"  # Restart
+cmux send --surface surface:N "claude -p 'retry task'\n"  # Restart
 ```
 
 ### Comparison: Agent Tool vs cmux Panes
@@ -295,11 +295,37 @@ if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
 3. `orchestration.md` "Workspace-Per-Project Pattern" section wasn't clearly framed as a special case — weaker models treated it as the general pattern
 
 **Fix**: 3 targeted edits:
-1. `SKILL.md` — Added `**Default: panes, not workspaces.**` callout immediately after the Agent Orchestration section header: *"Use `cmux new-split` to create splits within the current workspace. Only use `cmux new-workspace` when agents need completely separate project directories (e.g., monorepo subprojects with different `--cwd`)."*
-2. `SKILL.md` — Added row to Common Mistakes table: *"Creating new workspaces for parallel agents → Use `cmux new-split right|down` instead — workspaces are for separate project roots, not parallel tasks"*
-3. `orchestration.md` — Added `> **Special case only.**` callout under "Workspace-Per-Project Pattern" heading: *"Use this pattern when agents need different `--cwd` project roots. For parallel tasks within the same project, use `cmux new-split` instead — it's simpler, faster, and easier to monitor."*
+1. `SKILL.md` — Added `**Default: panes, not workspaces.**` callout immediately after the Agent Orchestration section header
+2. `SKILL.md` — Added row to Common Mistakes table warning against workspaces for parallel agents
+3. `orchestration.md` — Added `> **Special case only.**` callout under "Workspace-Per-Project Pattern" heading
 
 **Result**: Explicit panes-first default visible to all models at the first decision point. Workspace pattern clearly gated as a special case.
+
+## Balanced Splits & CLI Fix (v1.6.0)
+
+**Problem 1 — Uneven pane splitting**: Users reported some panes being very large and others very small. Root cause: Claude splits whichever pane has focus (the most recently created one), leading to recursive halving of one pane (50% → 25% → 12.5% → 6.25%) while the original pane stays untouched.
+
+**Problem 2 — Wrong CLI invocation**: All skill examples used `claude 'prompt'` (interactive mode) instead of `claude -p 'prompt'` (non-interactive print mode). Without `-p`: the workspace trust dialog may block execution, the agent starts an interactive session waiting for input, and Claude often "improvises" by saving prompts to temp files (`/tmp/agent-1.md`, `/tmp/agent-1.sh`) and piping them.
+
+**Fix — Balanced splits**:
+1. `SKILL.md` — Replaced "Creating Panes" with "Creating Balanced Pane Layouts": concrete recipes for 1, 2, 3, and 4+ agents using surface ref capture (`awk '{print $2}'`) and `--surface` targeting
+2. `orchestration.md` — Replaced "Plan and Create Panes" with balanced 2×2 grid recipe using same pattern
+3. Key principle: always capture surface refs from `new-split` output, always use `--surface $REF` for subsequent splits
+4. Added Common Mistakes entry: "Splitting the focused pane recursively"
+
+**Fix — CLI invocation**:
+1. Changed every `claude 'prompt'` → `claude -p 'prompt'` across SKILL.md, orchestration.md, README.md
+2. Added bold instructions: "Always use `claude -p 'prompt'`" and "Never save prompts to temp files"
+3. Added Common Mistakes entries for missing `-p` flag and temp file patterns
+4. Added single-quote escaping example for complex prompts
+
+**Layout recipes (from SKILL.md)**:
+- **1 agent**: `S1=$(cmux new-split right | awk '{print $2}')` → [orch 50% | agent 50%]
+- **2 agents**: split right + subdivide → [orch 50% | agent-1 25% / agent-2 25%]
+- **3 agents**: 2×2 grid using `$ORIG` from `cmux identify --json` → all 4 panes equal 25%
+- **4+ agents**: extend grid by splitting largest agent pane
+
+**Files changed**: SKILL.md, orchestration.md, README.md, plugin.json, marketplace.json (92 insertions, 34 deletions + version bump to 1.6.0)
 
 ## Skill Evaluation & Fixes (v1.3.0)
 
@@ -327,17 +353,19 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
   - cmux blocks the built-in Agent tool via PreToolUse hook when `CMUX_SOCKET_PATH` is set, redirecting to cmux panes for better isolation and observability.
   - Plugin ships SessionStart/Stop/Notification lifecycle hooks that delegate to `cmux claude-hook` for native sidebar status management.
   - Custom `set-status` in hooks was removed in v1.5.0 as redundant — `cmux claude-hook` handles lifecycle status natively.
-  - Panes (`cmux new-split`) are the explicit default for agent orchestration. Workspaces (`cmux new-workspace`) are reserved for separate project roots only — documented in v1.5.1 to fix Sonnet creating workspaces instead of panes.
+  - Panes (`cmux new-split`) are the explicit default for agent orchestration. Workspaces (`cmux new-workspace`) are reserved for separate project roots only — documented in v1.5.1.
+  - Spawned agents must use `claude -p 'prompt'` (non-interactive print mode) — documented in v1.6.0 to fix wrong CLI invocation patterns.
+  - Pane splits must use `--surface` targeting with captured refs — documented in v1.6.0 to fix uneven recursive splitting.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
 
-- `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks (simple `cmux claude-hook` delegation)
-- `skills/using-cmux/SKILL.md` — Core cmux skill with CLI reference, orchestration patterns, permission handling, panes-as-default guidance, common mistakes
-- `skills/using-cmux/references/orchestration.md` — Advanced multi-agent patterns, error recovery with `respawn-pane`, workspace-per-project as special case only
+- `hooks/hooks.json` — PreToolUse Agent blocking + SessionStart/Stop/Notification lifecycle hooks
+- `skills/using-cmux/SKILL.md` — Core cmux skill with balanced pane layouts, `claude -p` invocation, permission handling, common mistakes
+- `skills/using-cmux/references/orchestration.md` — Multi-agent patterns with balanced splits, `claude -p`, error recovery with `respawn-pane`
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.5.1
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.5.1
-- `README.md` — Project README with hooks directory tree, version badge v1.5.1
+- `.claude-plugin/plugin.json` — Plugin manifest v1.6.0
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.6.0
+- `README.md` — Project README with `claude -p` examples, version badge v1.6.0
