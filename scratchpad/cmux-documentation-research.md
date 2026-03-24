@@ -1,7 +1,7 @@
 # cmux Documentation & Research
 
 > Last updated by /write on 2026-03-25
-> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0) + agent cleanup & output persistence (v1.7.0) + prompt file piping fix (v1.8.0)
+> Source: Research session (3 parallel agents) + skill evaluation & fixes (v1.3.0) + hooks simplification (v1.5.0) + panes-as-default fix (v1.5.1) + balanced splits & CLI fix (v1.6.0) + agent cleanup & output persistence (v1.7.0) + prompt file fix (v1.8.0 → v1.8.1)
 
 ## Summary
 
@@ -150,7 +150,7 @@ Located in `hooks/hooks.json` of the claude-cmux-skill plugin:
 3. Denial reason redirects to `using-cmux` skill
 4. Skill provides cmux CLI commands for split panes + launch
 
-### Plugin Structure (claude-cmux-skill v1.8.0)
+### Plugin Structure (claude-cmux-skill v1.8.1)
 ```
 claude-cmux-skill/
 ├── .claude-plugin/plugin.json
@@ -327,25 +327,29 @@ if [ -n "$CMUX_SOCKET_PATH" ]; then cmux claude-hook stop; else exit 0; fi
 
 **Files changed**: SKILL.md, orchestration.md, README.md, plugin.json, marketplace.json (92 insertions, 34 deletions + version bump to 1.6.0)
 
-## Prompt File Piping Fix (v1.8.0)
+## Prompt File Fix (v1.8.0 → v1.8.1)
 
-**Problem**: Multi-line or complex prompts sent inline via `cmux send` get corrupted in agent panes. `cmux send` interprets `\n` as Enter, which splits multi-line prompts across shell lines — the shell sees an unclosed single quote and enters `quote>` continuation mode, often getting stuck or producing garbled input. This was especially common with detailed research prompts containing URLs, lists, and multi-paragraph instructions.
+**Problem 1 (v1.8.0)**: Multi-line or complex prompts sent inline via `cmux send` get corrupted in agent panes. `cmux send` interprets `\n` as Enter, which splits multi-line prompts across shell lines — the shell sees an unclosed single quote and enters `quote>` continuation mode, often getting stuck or producing garbled input. This was especially common with detailed research prompts containing URLs, lists, and multi-paragraph instructions.
 
 **Root cause**: `cmux send --surface $S1 "claude -p 'long\nmulti-line\nprompt'\n"` — each `\n` inside the prompt is converted to Enter by cmux, breaking the shell's quote parsing.
 
-**Fix — File-based prompt piping**:
-1. `SKILL.md` "Launching Agents" — Split into two sub-sections: "Simple prompts" (inline, unchanged) and "Complex or multi-line prompts" (write prompt to `scratchpad/agent-N-prompt.md`, then `cat scratchpad/agent-N-prompt.md | claude -p`)
-2. `orchestration.md` "Launch Agents with Labels" — Updated primary examples to use the file+pipe pattern, with inline as fallback for simple one-liners
-3. `SKILL.md` "Common Mistakes" — Replaced old "Saving prompts to temp files" entry with two new entries: "Sending multi-line prompts inline via cmux send" and "Saving prompts to `/tmp/`"
+**Problem 2 (v1.8.1)**: The v1.8.0 fix used `cat file | claude -p` (piping), but `claude -p` requires the prompt as a command-line argument — it does NOT read from stdin. This caused agent panes to hang with a blinking cursor after displaying the command.
+
+**Fix — File-based prompt with `$(cat)` command substitution**:
+1. `SKILL.md` "Launching Agents" — Split into two sub-sections: "Simple prompts" (inline, unchanged) and "Complex or multi-line prompts" (write prompt to `scratchpad/agent-N-prompt.md`, then use `$(cat)` substitution)
+2. `orchestration.md` "Launch Agents with Labels" — Updated primary examples to use the `$(cat)` pattern, with inline as fallback for simple one-liners
+3. `SKILL.md` "Common Mistakes" — Added entries for inline multi-line prompts, piping to `claude -p`, and `/tmp/` usage
 
 **Key pattern**:
 ```bash
 # 1. Write prompt to file (orchestrator uses Write tool)
-# 2. Pipe to agent:
-cmux send --surface $S1 "cat scratchpad/agent-1-prompt.md | claude -p\n"
+# 2. Use $(cat) to pass file content as argument:
+cmux send --surface $S1 "claude -p \"\$(cat scratchpad/agent-1-prompt.md)\"\n"
 ```
 
-**Files changed**: SKILL.md, orchestration.md, plugin.json, marketplace.json, README.md (version bump to 1.8.0)
+**Why `$(cat)` not pipe**: `claude -p` expects a positional argument. `cat file | claude -p` sends content to stdin which `claude -p` ignores — it hangs waiting. `"$(cat file)"` expands the file content as the argument to `-p`.
+
+**Files changed**: SKILL.md, orchestration.md, plugin.json, marketplace.json, README.md (v1.8.0 → v1.8.1)
 
 ## Agent Cleanup & Output Persistence (v1.7.0)
 
@@ -396,7 +400,7 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
   - Pane splits must use `--surface` targeting with captured refs — documented in v1.6.0 to fix uneven recursive splitting.
   - Spawned agents must persist output to `scratchpad/` files — documented in v1.7.0 so results survive pane closure.
   - Agent panes should be closed per-agent as they finish (not batched at the end) — documented in v1.7.0 to reduce workspace clutter.
-  - Complex/multi-line prompts must use file+pipe pattern (`cat scratchpad/agent-N-prompt.md | claude -p`) to avoid `cmux send` quoting corruption — documented in v1.8.0.
+  - Complex/multi-line prompts must use file + `$(cat)` pattern (`claude -p "$(cat scratchpad/agent-N-prompt.md)"`) — piping does NOT work because `claude -p` requires the prompt as an argument. Documented in v1.8.0, fixed in v1.8.1.
 - **Open questions**: Should task decomposition rules and git worktree patterns be added to SKILL.md or orchestration.md?
 
 ## References
@@ -407,6 +411,6 @@ After research, we evaluated the claude-cmux-skill plugin against findings. 8 fi
 - `skills/using-cmux/references/browser-automation.md` — Full browser API reference
 - `skills/using-cmux/references/notifications.md` — Notification systems comparison
 - `skills/using-cmux/references/complete-cli.md` — Complete CLI catalog (220+ commands), global flags
-- `.claude-plugin/plugin.json` — Plugin manifest v1.8.0
-- `.claude-plugin/marketplace.json` — Marketplace catalog v1.8.0
-- `README.md` — Project README with `claude -p` examples, version badge v1.8.0
+- `.claude-plugin/plugin.json` — Plugin manifest v1.8.1
+- `.claude-plugin/marketplace.json` — Marketplace catalog v1.8.1
+- `README.md` — Project README with `claude -p` examples, version badge v1.8.1
