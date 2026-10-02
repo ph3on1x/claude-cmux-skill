@@ -1,16 +1,21 @@
 {
   "name": "claude-cmux-skill",
   "owner": {
-    "name": "Dennis Nasarov"
+    "name": "Dennis Nasarov",
+    "url": "https://github.com/ph3on1x"
+  },
+  "metadata": {
+    "description": "Moved to ph3on1x/agent-plugins-skills. This marketplace forwards to the new location."
   },
   "plugins": [
     {
-      "name": "claude-cmux-skill",
-      "source": "./",
-      "description": "Skill for orchestrating independent Claude Code sessions in cmux terminal — split panes, agent monitoring, browser automation, sidebar metadata, notifications, and full CLI coverage.",
-      "version": "2.0.0",
-      "author": {
-        "name": "Dennis Nasarov"
+      "name": "cmux",
+      "description": "cmux (moved to ph3on1x/agent-plugins-skills)",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/ph3on1x/agent-plugins-skills.git",
+        "path": "skills/cmux",
+        "ref": "main"
       }
     }
   ]
